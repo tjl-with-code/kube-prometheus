@@ -16,9 +16,81 @@ spec:
       name: alertmanager-main
       namespace: monitoring
       port: web
+  containers:
+     - name: prometheus
+       image: quay.io/prometheus/prometheus:v2.48.0
+       args:
+         - "--web.config.file=/etc/prometheus/web_config.yaml"
+         - "--config.file=/etc/prometheus/config_out/prometheus.env.yaml"
+         - "--web.enable-lifecycle"
+       volumeMounts:
+         - name: config-volume
+           mountPath: /etc/prometheus/prometheus.yml
+           subPath: prometheus.yml
+           readOnly: true
+         - name: web-config-map
+           mountPath: /etc/prometheus/web_config.yaml
+           subPath: web_config.yaml
+           readOnly: true
+       livenessProbe:
+         httpGet:
+           path: /-/healthy
+           port: web
+           scheme: HTTP
+           httpHeaders:
+             - name: Authorization
+               value: Basic YWRtaW46YWRtaW4=
+       readinessProbe:
+         httpGet:
+           path: /-/ready
+           port: web
+           scheme: HTTP
+           httpHeaders:
+             - name: Authorization
+               value: Basic YWRtaW46YWRtaW4=
+       startupProbe:
+         httpGet:
+           path: /-/ready
+           port: web
+           scheme: HTTP
+           httpHeaders:
+             - name: Authorization
+               value: Basic YWRtaW46YWRtaW4=
+     - name: config-reloader
+       image: quay.io/prometheus-operator/prometheus-config-reloader:v0.69.1
+       args:
+         - '--listen-address=:8080'
+         - '--reload-url=http://admin:admin@localhost:9090/-/reload'
+         - '--config-file=/etc/prometheus/config/prometheus.yaml.gz'
+         - '--config-envsubst-file=/etc/prometheus/config_out/prometheus.env.yaml'
+       ports:
+         - name: reloader-web
+           containerPort: 8080
+           protocol: TCP
+       env:
+         - name: POD_NAME
+           valueFrom:
+             fieldRef:
+               apiVersion: v1
+               fieldPath: metadata.name
+         - name: SHARD
+           value: '0'
+       resources:
+         limits:
+           cpu: 100m
+           memory: 50Mi
+         requests:
+           cpu: 100m
+           memory: 50Mi
+       volumeMounts:
+         - name: config
+           mountPath: /etc/prometheus/config
+         - name: config-out
+           mountPath: /etc/prometheus/config_out
+         - name: prometheus-k8s-rulefiles-0
+           mountPath: /etc/prometheus/rules/prometheus-k8s-rulefiles-0
   enableFeatures: []
   externalLabels: {}
-  image: quay.io/prometheus/prometheus:v2.48.0
   nodeSelector:
     kubernetes.io/os: linux
   podMetadata:
@@ -32,7 +104,7 @@ spec:
   podMonitorSelector: {}
   probeNamespaceSelector: {}
   probeSelector: {}
-  replicas: 2
+  replicas: 1
   resources:
     requests:
       memory: 400Mi
@@ -48,3 +120,10 @@ spec:
   serviceMonitorNamespaceSelector: {}
   serviceMonitorSelector: {}
   version: 2.48.0
+  volumes:
+    - name: config-volume
+      configMap:
+        name: prometheus-config
+    - name: web-config-map
+      configMap:
+         name: web-config-map
